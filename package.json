@@ -1,0 +1,61 @@
+{
+  "name": "Choir-Contracts",
+  "author": "Tim Clancy",
+  "license": "GPL-3.0",
+  "version": "1.0.0",
+  "description": "A series of smart contracts for operating Choir's infrastructure.",
+  "keywords": [
+    "tiel"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Choir-Art/Choir-Contracts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Choir-Art/Choir-Contracts/issues"
+  },
+  "homepage": "https://github.com/Choir-Art/Choir-Contracts#readme",
+  "scripts": {
+    "test": "npx hardhat test; echo 'Executing test cases which require Ganache ...';",
+    "lint": "npx eslint ./",
+    "validate": "npm-run-all --parallel test lint",
+    "contract-size": "npx hardhat size-contracts"
+  },
+  "eslintConfig": {
+    "globals": {
+      "usePlugin": true
+    }
+  },
+  "dependencies": {
+    "@openzeppelin/contracts-upgradeable": "^3.4.1-solc-0.7-2",
+    "dotenv": "^8.2.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.11.6",
+    "@babel/plugin-transform-runtime": "^7.11.5",
+    "@babel/preset-env": "^7.11.5",
+    "@babel/register": "^7.11.5",
+    "@babel/runtime": "^7.11.2",
+    "@nomiclabs/hardhat-ethers": "^2.0.0",
+    "@nomiclabs/hardhat-etherscan": "^2.1.1",
+    "@nomiclabs/hardhat-ganache": "^2.0.0",
+    "@nomiclabs/hardhat-waffle": "^2.0.0",
+    "@openzeppelin/contracts": "^4.3.1",
+    "chai": "git+https://github.com/chaijs/chai.git#5276af683ca4f6699768b4401dcf4c7c331e83f7",
+    "eslint": "^7.10.0",
+    "eslint-plugin-html": "^6.1.0",
+    "eslint-plugin-import": "^2.22.1",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-promise": "^4.2.1",
+    "eslint-plugin-standard": "^4.0.1",
+    "ethereum-waffle": "^3.1.1",
+    "ethers": "^5.4.0",
+    "hardhat": "^2.6.5",
+    "hardhat-contract-sizer": "^2.1.1",
+    "hardhat-gas-reporter": "^1.0.4",
+    "husky": "^4.3.0",
+    "npm-run-all": "^4.1.5",
+    "solidity-coverage": "^0.7.19",
+    "solidity-docgen": "^0.5.11"
+  }
+}
