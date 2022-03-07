@@ -5,9 +5,9 @@ import { ethers, network } from 'hardhat';
 import { expect } from 'chai';
 import 'chai/register-should';
 
-describe('ClaimableVault', function () {
+describe('ClaimableMint', function () {
 	let alice, bob, carol, dev;
-	let SweepableToken, Tiny721, ClaimableVault;
+	let SweepableToken, Tiny721, ClaimableMint;
 	before(async () => {
 		const signers = await ethers.getSigners();
 		const addresses = await Promise.all(signers.map(async signer => signer.getAddress()));
@@ -18,23 +18,23 @@ describe('ClaimableVault', function () {
 
     SweepableToken = await ethers.getContractFactory('SweepableToken');
     Tiny721 = await ethers.getContractFactory('Tiny721');
-    ClaimableVault = await ethers.getContractFactory('ClaimableVault');
+    ClaimableMint = await ethers.getContractFactory('ClaimableMint');
 	});
 
   // Configuration details for the testing ERC-20 token.
 	let TOKEN_NAME = 'Testing Token';
   let TOKEN_TICKER = 'TEST';
   let TOKEN_CAP = ethers.utils.parseEther('1000000000');
-	let token, item, vault;
+	let token, item, minter;
 
   // Configuration details for the testing Tiny721 item.
   const ITEM_NAME = 'Test Item';
   const ITEM_SYMBOL = 'TEST';
   const ITEM_METADATA_URI = '';
-  const ITEM_CAP = 10000;
+  const ITEM_CAP = ethers.constants.MaxUint256;
 
-  // Configuration details for the testing vault.
-  const VAULT_NAME = 'Test Vault';
+  // Configuration details for the testing minter.
+  const MINTER_NAME = 'Test Minter';
 
 	// Deploy a fresh set of smart contracts for testing with.
 	beforeEach(async () => {
@@ -51,74 +51,74 @@ describe('ClaimableVault', function () {
       ITEM_CAP
     );
     await item.deployed();
-    vault = await ClaimableVault.connect(dev.signer).deploy(
-      VAULT_NAME,
-      dev.address
+    minter = await ClaimableMint.connect(dev.signer).deploy(
+      MINTER_NAME,
+      dev.address,
+			token.address,
+			item.address,
+			carol.address
     );
-    await vault.deployed();
+    await minter.deployed();
 	});
 
   // Perform those tests utilizing minted tokens.
   context('with minted items', async function() {
     beforeEach(async function() {
 
-      // Send some tokens to the claiming vault.
+      // Send some tokens to Alice.
       await token.connect(dev.signer).mint(
-        vault.address,
+        alice.address,
         ethers.utils.parseEther('1000000')
       );
 
-      // Mint an item to Alice.
-      await item.connect(dev.signer).mint_Qgo(alice.address, 1);
+			// Alice should approve the minter to spend her tokens.
+			await token.connect(alice.signer).approve(
+				minter.address,
+				ethers.constants.MaxUint256
+			);
+
+      // Approve the claim minter as an admin for minting `item`.
+			await item.connect(dev.signer).setAdmin(minter.address, true);
     });
 
-  	// Verify that item holders may claim tokens with valid signatures.
-    describe('valid claiming', async function() {
-    	it('allow a holder to claim', async () => {
+  	// Verify that callers may mint items with valid signatures.
+    describe('valid minting', async function() {
+    	it('allow a caller to pay to mint', async () => {
     		const domain = {
-    			name: VAULT_NAME,
+    			name: MINTER_NAME,
     			version: '1',
     			chainId: network.config.chainId,
-    			verifyingContract: vault.address
+    			verifyingContract: minter.address
     		};
 
-    		// Our signer can now sign the digest to produce an executable signature.
+    		// Our signer can sign the digest to produce an executable signature.
     		let signature = await dev.signer._signTypedData(
     			domain,
     			{
-    				claim: [
-    					{ name: '_claimant', type: 'address' },
-              { name: '_asset', type: 'address' },
-    					{ name: '_amount', type: 'uint256' },
-              { name: '_limit', type: 'uint256' },
-              { name: '_item', type: 'address' },
-              { name: '_id', type: 'uint256' }
+    				mint: [
+    					{ name: '_minter', type: 'address' },
+    					{ name: '_cost', type: 'uint256' },
+              { name: '_offchainId', type: 'uint256' }
     				]
     			},
     			{
-    				'_claimant': alice.address,
-            '_asset': token.address,
-    				'_amount': ethers.utils.parseEther('1000'),
-            '_limit': ethers.utils.parseEther('1000'),
-            '_item': item.address,
-            '_id': 1
+    				'_minter': alice.address,
+            '_cost': ethers.utils.parseEther('1000'),
+            '_offchainId': 1
     			}
     		);
     		let { v, r, s } = ethers.utils.splitSignature(signature);
 
     		// Alice should be able to execute this signature.
-    		let aliceBalance = await token.balanceOf(alice.address);
+    		let aliceBalance = await item.balanceOf(alice.address);
     		aliceBalance.should.be.equal(0);
-    		await vault.connect(alice.signer).claim(
-          token.address,
+    		await minter.connect(alice.signer).mint(
     			ethers.utils.parseEther('1000'),
-          ethers.utils.parseEther('1000'),
-          item.address,
           1,
           v, r, s
         );
-    		aliceBalance = await token.balanceOf(alice.address);
-    		aliceBalance.should.be.equal(ethers.utils.parseEther('1000'));
+    		aliceBalance = await item.balanceOf(alice.address);
+    		aliceBalance.should.be.equal(1);
     	});
     });
   });

@@ -34,6 +34,13 @@ interface ITiny721 {
   ) external returns (bool);
 
   /**
+    Return the total number of this token that have ever been minted.
+
+    @return The total supply of minted tokens.
+  */
+  function totalSupply () external returns (uint256);
+
+  /**
     Return the address that holds a particular token ID.
 
     @param _id The token ID to check for the holding address of.
