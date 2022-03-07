@@ -17,6 +17,7 @@ import "../../libraries/EIP712.sol";
 error CannotClaimInvalidSignature();
 error CannotClaimBeyondAllocation();
 error CannotClaimForUnheldItem();
+error ClaimEtherTransferFailed();
 error SweepingTransferFailed();
 
 /**
@@ -38,26 +39,36 @@ contract ClaimableVault is
 {
   using SafeERC20 for IERC20;
 
-  /// A constant hash of the mint operation's signature.
+  /// A constant hash of the claim operation's signature.
   bytes32 constant public CLAIM_TYPEHASH = keccak256(
-    "claim(address _claimant,uint256 _amount,uint256 _limit,address _item,uint256 _id)"
+    "claim(address _claimant,address _asset,uint256 _amount,uint256 _limit,address _item,uint256 _id)"
   );
 
   /// The name of the vault.
   string public name;
 
-  /// The address of the token given out for claims.
-  address public immutable token;
-
   /// The address permitted to sign claim signatures.
   address public immutable signer;
 
   /**
-    A double mapping to record the number of tokens claimed by a particular NFT,
-    represented as an address and a token ID. The address of the NFT contract
-    maps to the number of tokens claimed by each token ID of the NFT contract.
+    A triple mapping to record the number of a particular token claimed by a
+    particular NFT, represented as an address to the NFT's smart contract and a
+    token ID. The address of the NFT contract maps to the number of a token
+    claimed by each token ID of the NFT contract. The zero address is used as a
+    sentinel value for claims of Ether.
+
+    ERC-721 item smart contract address =>
+    token ID of the specific ERC-721 item =>
+    the address of the ERC-20 token (0x0 for Ether) =>
+    the amount claimed.
   */
-  mapping ( address => mapping ( uint256 => uint256 )) claimed;
+  mapping (
+    address => mapping (
+      uint256 => mapping (
+        address => uint256
+      )
+    )
+  ) claimed;
 
   /**
     An event emitted when a claimant claims tokens.
@@ -66,6 +77,7 @@ contract ClaimableVault is
     @param claimant The caller who claimed the tokens.
     @param item The address of the ERC-721 contract involved in this claim.
     @param id The ID of the specific token within the ERC-721 `item` contract.
+    @param asset The ERC-20 tokens being claimed, or 0x0 for Ether.
     @param amount The amount of tokens claimed.
   */
   event Claimed (
@@ -73,6 +85,7 @@ contract ClaimableVault is
     address indexed claimant,
     address indexed item,
     uint256 id,
+    address indexed asset,
     uint256 amount
   );
 
@@ -81,17 +94,13 @@ contract ClaimableVault is
     issue claims and claim amounts.
 
     @param _name The name of the vault used in EIP-712 domain separation.
-    @param _token The address of the ERC-20 token given out for claims.
     @param _signer The address permitted to sign claim signatures.
   */
   constructor (
     string memory _name,
-    address _token,
     address _signer
   ) EIP712(_name, "1") {
     name = _name;
-    token = _token;
-    IERC20(token).approve(address(this), type(uint256).max);
     signer = _signer;
   }
 
@@ -101,16 +110,22 @@ contract ClaimableVault is
     the authorized address we expect.
 
     @param _claimant The claimant attempting to claim tokens.
+    @param _asset The address of the ERC-20 token being claimed; 0x0 for Ether.
     @param _amount The amount of tokens the claimant is trying to claim.
-    @param _limit The maximum number of tokens the `_item` could possibly claim. The claimant will be given the lesser of `_amount` or the difference between `_limit` and the total amount claimed by the specific item thus far.
-    @param _item TODO
-    @param _id TODO
+    @param _limit The maximum number of tokens the `_item` could possibly claim.
+      The claimant will be given the lesser of `_amount` or the difference
+      between `_limit` and the total amount claimed by the specific item thus
+      far.
+    @param _item The address of the smart contract of the item that is claiming.
+    @param _id The ID of the specific token in the `_item` contract that is
+      attempting this claim.
     @param _v The recovery byte of the signature.
     @param _r Half of the ECDSA signature pair.
     @param _s Half of the ECDSA signature pair.
   */
   function validClaim (
     address _claimant,
+    address _asset,
     uint256 _amount,
     uint256 _limit,
     address _item,
@@ -127,6 +142,7 @@ contract ClaimableVault is
           abi.encode(
             CLAIM_TYPEHASH,
             _claimant,
+            _asset,
             _amount,
             _limit,
             _item,
@@ -142,13 +158,17 @@ contract ClaimableVault is
 
   /**
     Allow a caller to claim any of their available tokens if
-      1. the claim is backed by a valid signature from the trusuted `signer`.
+      1. the claim is backed by a valid signature from the trusted `signer`.
       2. item `_id` has tokens that its holder may claim
       3. the caller is the holder of item `_id`
       4. the vault has enough tokens to fulfill the claim
 
+    @param _asset The address of the ERC-20 token being claimed; 0x0 for Ether.
     @param _amount The amount of tokens that the caller is trying to claim.
-    @param _limit The maximum number of tokens the `_item` could possibly claim. The claimant will be given `_amount` tokens only if it is not greater than the difference between `_limit` and the total amount claimed by the specific item thus far.
+    @param _limit The maximum number of tokens the `_item` could possibly claim.
+      The claimant will be given `_amount` tokens only if it is not greater than
+      the difference between `_limit` and the total amount claimed by the
+      specific item thus far.
     @param _item The ERC-721 item address of the item the caller is claiming.
     @param _id The token ID that the item caller is claiming for.
     @param _v The recovery byte of the signature.
@@ -156,6 +176,7 @@ contract ClaimableVault is
     @param _s Half of the ECDSA signature pair.
   */
   function claim (
+    address _asset,
     uint256 _amount,
     uint256 _limit,
     address _item,
@@ -166,12 +187,23 @@ contract ClaimableVault is
   ) external {
 
     // Validiate that the claim was provided by our trusted `signer`.
-    if (!validClaim(_msgSender(), _amount, _limit, _item, _id, _v, _r, _s)) {
+    bool validSignature = validClaim(
+      _msgSender(),
+      _asset,
+      _amount,
+      _limit,
+      _item,
+      _id,
+      _v,
+      _r,
+      _s
+    );
+    if (!validSignature) {
       revert CannotClaimInvalidSignature();
     }
 
     // Prevent claiming tokens beyond the limit.
-    if ((claimed[_item][_id] + _amount) > _limit) {
+    if ((claimed[_item][_id][_asset] + _amount) > _limit) {
       revert CannotClaimBeyondAllocation();
     }
 
@@ -187,17 +219,26 @@ contract ClaimableVault is
     if (_msgSender() != holder) { revert CannotClaimForUnheldItem(); }
 
     // Update the amount claimed by the holder of this item.
-    claimed[_item][_id] += _amount;
+    claimed[_item][_id][_asset] += _amount;
 
-    // Transfer tokens to the item holder.
-    IERC20(token).safeTransferFrom(
-      address(this),
-      holder,
-      _amount
-    );
+    /*
+      A non-zero `_asset` address indicates that the asset being claimed is an
+      ERC-20 token of some kind, so transfer tokens to the item holder.
+    */
+    if (_asset != address(0)) {
+      IERC20(_asset).safeTransfer(
+        holder,
+        _amount
+      );
+
+    // Otherwise, transfer Ether.
+    } else {
+      (bool success, ) = payable(holder).call{ value: _amount }("");
+      if (!success) { revert ClaimEtherTransferFailed(); }
+    }
 
     // Emit an event.
-    emit Claimed(block.timestamp, _msgSender(), _item, _id, _amount);
+    emit Claimed(block.timestamp, _msgSender(), _item, _id, _asset, _amount);
   }
 
   /**
